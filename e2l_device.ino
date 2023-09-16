@@ -167,12 +167,20 @@ uint8_t compressed_public_key[PRIVATE_KEY_SIZE + 1] = {0x00};
  *  Prepares the payload of the frame
  */
 static void prepareTxFrame(uint8_t port) {
-  uint8_t test[] = "test";
+  // uint8_t test[] = "test";
+  long randNumber = random(15, 30);
   switch (port) {
     case DEFAULT_APP_PORT:
     case DEFAULT_E2L_APP_PORT:
-      appDataSize = 5;
-      memcpy(appData, test, 5);
+      appDataSize = 1;
+      appData[0] = (uint8_t) randNumber;
+      // appData[0] = 0;
+      // appData[1] = 1;
+      // appData[2] = 2;
+      // appData[3] = 3;
+      // appData[4] = 4;
+      // memcpy(appData, test, 5);
+      Serial.printf("Send: %d", appData[0]);
       break;
     case DEFAULT_E2L_JOIN_PORT:
       uECC_make_key(public_key, private_key, curve);
