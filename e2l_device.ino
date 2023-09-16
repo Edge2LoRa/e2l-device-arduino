@@ -153,7 +153,7 @@ void print_bytes(uint8_t* bytes, int bytes_len) {
 #define E2L_INIT 0
 #define E2L_REQUESTED 1
 #define E2L_ENABLED 2
-bool e2l_state = E2L_INIT;
+uint8_t e2l_state = E2L_INIT;
 
 // ECC utils
 #define PRIVATE_KEY_SIZE 32
@@ -175,7 +175,6 @@ static void prepareTxFrame(uint8_t port) {
       memcpy(appData, test, 5);
       break;
     case DEFAULT_E2L_JOIN_PORT:
-      appPort = port;
       uECC_make_key(public_key, private_key, curve);
       uECC_compress((const uint8_t*)public_key, compressed_public_key, curve);
       appDataSize = PRIVATE_KEY_SIZE + 1;
@@ -213,7 +212,6 @@ void loop() {
           prepareTxFrame(DEFAULT_APP_PORT);
           break;
         case E2L_ENABLED:
-          Serial.print("EDGEEEEEEE");
           prepareTxFrame(DEFAULT_E2L_APP_PORT);
           break;
       }
