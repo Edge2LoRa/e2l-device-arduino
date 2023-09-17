@@ -68,31 +68,28 @@ bool isTxConfirmed = LORAWAN_UPLINKMODE;
 #define DEFAULT_APP_PORT 2
 #define DEFAULT_E2L_JOIN_PORT 3
 #define DEFAULT_E2L_APP_PORT 4
+#define DEFAULT_E2L_COMMAND_PORT 5
 uint8_t appPort;
-/*!
- * Number of trials to transmit the frame, if the LoRaMAC layer did not
- * receive an acknowledgment. The MAC performs a datarate adaptation,
- * according to the LoRaWAN Specification V1.0.2, chapter 18.4, according
- * to the following table:
- *
- * Transmission nb | Data Rate
- * ----------------|-----------
- * 1 (first)       | DR
- * 2               | DR
- * 3               | max(DR-1,0)
- * 4               | max(DR-1,0)
- * 5               | max(DR-2,0)
- * 6               | max(DR-2,0)
- * 7               | max(DR-3,0)
- * 8               | max(DR-3,0)
- *
- * Note, that if NbTrials is set to 1 or 2, the MAC will not decrease
- * the datarate, in case the LoRaMAC layer did not receive an acknowledgment
- */
+
 uint8_t confirmedNbTrials = 4;
 
+// Edge2LoRa State
+#define E2L_INIT 0
+#define E2L_REQUESTED 1
+#define E2L_ENABLED 2
+uint8_t e2l_state = E2L_INIT;
+
+// ECC utils
+#define PRIVATE_KEY_SIZE 32
+#define PUBLIC_KEY_SIZE 64
+const struct uECC_Curve_t* curve = uECC_secp256r1();
+uint8_t private_key[PRIVATE_KEY_SIZE] = {0x00};
+uint8_t public_key[PUBLIC_KEY_SIZE] = {0x00};
+uint8_t compressed_public_key[PRIVATE_KEY_SIZE + 1] = {0x00};
+
+
 /*
- *  EDGE2LoRa Support
+ *  Crypto Support
  */
 static int RNG(uint8_t* dest, unsigned size) {
   // Use the least-significant bits from the ADC for an unconnected pin (or
@@ -149,20 +146,6 @@ void print_bytes(uint8_t* bytes, int bytes_len) {
   printf("\n\n");
 }
 
-// Edge2LoRa State
-#define E2L_INIT 0
-#define E2L_REQUESTED 1
-#define E2L_ENABLED 2
-uint8_t e2l_state = E2L_INIT;
-
-// ECC utils
-#define PRIVATE_KEY_SIZE 32
-#define PUBLIC_KEY_SIZE 64
-const struct uECC_Curve_t* curve = uECC_secp256r1();
-uint8_t private_key[PRIVATE_KEY_SIZE] = {0x00};
-uint8_t public_key[PUBLIC_KEY_SIZE] = {0x00};
-uint8_t compressed_public_key[PRIVATE_KEY_SIZE + 1] = {0x00};
-
 /*
  *  Prepares the payload of the frame
  */
@@ -180,7 +163,7 @@ static void prepareTxFrame(uint8_t port) {
       // appData[3] = 3;
       // appData[4] = 4;
       // memcpy(appData, test, 5);
-      Serial.printf("Send: %d", appData[0]);
+      Serial.printf("Send: %d\n", appData[0]);
       break;
     case DEFAULT_E2L_JOIN_PORT:
       uECC_make_key(public_key, private_key, curve);
@@ -283,6 +266,11 @@ void downLinkDataHandle(McpsIndication_t* mcpsIndication) {
       print_bytes_array(edgeSEncKey, AES_KEY_SIZE);
       LoRaWAN.enableEdge2LoRa(edgeSIntKey, edgeSEncKey);
       e2l_state = E2L_ENABLED;
+      break;
+    case DEFAULT_E2L_COMMAND_PORT:
+      Serial.printf("Received command: %s\n", (char*)buffer);
+      LoRaWAN.disableEdge2LoRa();
+      e2l_state = E2L_INIT;
       break;
     default:
       break;
