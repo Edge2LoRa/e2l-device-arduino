@@ -1,3 +1,6 @@
+// Remove the comment for reading the temperature from a DHT temperature sensor
+// #define USE_TEMP_SENSOR
+
 #include <Crypto.h>
 #include <SHA256.h>
 #include <string.h>
@@ -5,7 +8,16 @@
 #include "LoRaWan_APP.h"
 #include "uECC.h"
 
+#ifdef USE_TEMP_SENSOR
+#include <DHT.h>
+#include <DHT_U.h>
+#endif
+
 #define HASH_SIZE 32
+
+#define DHTPIN GPIO3 // the pin the DHT is connected to
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
 
 //
 //  E2LORA DEVICE
@@ -35,9 +47,9 @@ uint32_t devAddr = (uint32_t)0x00000000;
 /* E2L keys */
 #define AES_KEY_SIZE 16
 uint8_t edgeSIntKey[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 uint8_t edgeSEncKey[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 /*LoraWan channelsmask, default channels 0-7*/
 uint16_t userChannelsMask[6] = {0x00FF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000};
@@ -82,32 +94,38 @@ uint8_t e2l_state = E2L_INIT;
 // ECC utils
 #define PRIVATE_KEY_SIZE 32
 #define PUBLIC_KEY_SIZE 64
-const struct uECC_Curve_t* curve = uECC_secp256r1();
+const struct uECC_Curve_t *curve = uECC_secp256r1();
 uint8_t private_key[PRIVATE_KEY_SIZE] = {0x00};
 uint8_t public_key[PUBLIC_KEY_SIZE] = {0x00};
 uint8_t compressed_public_key[PRIVATE_KEY_SIZE + 1] = {0x00};
 
-
 /*
  *  Crypto Support
  */
-static int RNG(uint8_t* dest, unsigned size) {
+static int RNG(uint8_t *dest, unsigned size)
+{
   // Use the least-significant bits from the ADC for an unconnected pin (or
   // connected to a source of random noise). This can take a long time to
   // generate random data if the result of analogRead(0) doesn't change very
   // frequently.
-  while (size) {
+  while (size)
+  {
     uint8_t val = 0;
-    for (unsigned i = 0; i < 8; ++i) {
+    for (unsigned i = 0; i < 8; ++i)
+    {
       int init = analogRead(0);
       int count = 0;
-      while (analogRead(0) == init) {
+      while (analogRead(0) == init)
+      {
         ++count;
       }
 
-      if (count == 0) {
+      if (count == 0)
+      {
         val = (val << 1) | (init & 0x01);
-      } else {
+      }
+      else
+      {
         val = (val << 1) | (count & 0x01);
       }
     }
@@ -120,26 +138,33 @@ static int RNG(uint8_t* dest, unsigned size) {
   return 1;
 }
 
-void print_bytes_array(uint8_t* bytes, int bytes_len) {
+void print_bytes_array(uint8_t *bytes, int bytes_len)
+{
   int i;
   Serial.printf("[");
-  for (i = 0; i < bytes_len; i++) {
+  for (i = 0; i < bytes_len; i++)
+  {
     Serial.printf("%d", bytes[i]);
-    if (i < bytes_len - 1) {
+    if (i < bytes_len - 1)
+    {
       Serial.printf(", ");
     }
   }
   Serial.printf("]\n");
 }
 
-void print_bytes(uint8_t* bytes, int bytes_len) {
+void print_bytes(uint8_t *bytes, int bytes_len)
+{
   int i;
-  for (i = 0; i < bytes_len; i++) {
-    if (i != 0 && i % 5 == 0) {
+  for (i = 0; i < bytes_len; i++)
+  {
+    if (i != 0 && i % 5 == 0)
+    {
       printf("\n");
     }
     printf("0x%2X", bytes[i]);
-    if (i != bytes_len - 1) {
+    if (i != bytes_len - 1)
+    {
       printf(",\t");
     }
   }
@@ -149,86 +174,93 @@ void print_bytes(uint8_t* bytes, int bytes_len) {
 /*
  *  Prepares the payload of the frame
  */
-static void prepareTxFrame(uint8_t port) {
-  // uint8_t test[] = "test";
-  long randNumber = random(15, 30);
-  switch (port) {
-    case DEFAULT_APP_PORT:
-    case DEFAULT_E2L_APP_PORT:
-      appDataSize = 1;
-      appData[0] = (uint8_t) randNumber;
-      // appData[0] = 0;
-      // appData[1] = 1;
-      // appData[2] = 2;
-      // appData[3] = 3;
-      // appData[4] = 4;
-      // memcpy(appData, test, 5);
-      Serial.printf("Send: %d\n", appData[0]);
-      break;
-    case DEFAULT_E2L_JOIN_PORT:
-      uECC_make_key(public_key, private_key, curve);
-      uECC_compress((const uint8_t*)public_key, compressed_public_key, curve);
-      appDataSize = PRIVATE_KEY_SIZE + 1;
-      memcpy(appData, compressed_public_key, appDataSize);
-      break;
+static void prepareTxFrame(uint8_t port)
+{
+#ifdef USE_TEMP_SENSOR
+  long temperature = (long)dht.readTemperature();
+#else
+  long temperature = random(15, 30);
+#endif
+  switch (port)
+  {
+  case DEFAULT_APP_PORT:
+  case DEFAULT_E2L_APP_PORT:
+    appDataSize = 1;
+    appData[0] = (uint8_t)temperature;
+    Serial.printf("Send: %d\n", appData[0]);
+    break;
+  case DEFAULT_E2L_JOIN_PORT:
+    uECC_make_key(public_key, private_key, curve);
+    uECC_compress((const uint8_t *)public_key, compressed_public_key, curve);
+    appDataSize = PRIVATE_KEY_SIZE + 1;
+    memcpy(appData, compressed_public_key, appDataSize);
+    break;
   }
   appPort = port;
 }
 
-void setup() {
+void setup()
+{
   Serial.begin(115200);
   deviceState = DEVICE_STATE_INIT;
   LoRaWAN.ifskipjoin();
   // E2L Support
   uECC_set_rng(&RNG);
+  // TEMP SENSOR
+  // delay(2000);
+  dht.begin();
 }
 
-void loop() {
-  switch (deviceState) {
-    case DEVICE_STATE_INIT:
-      printDevParam();
-      LoRaWAN.init(loraWanClass, loraWanRegion);
-      deviceState = DEVICE_STATE_JOIN;
+void loop()
+{
+  switch (deviceState)
+  {
+  case DEVICE_STATE_INIT:
+    printDevParam();
+    LoRaWAN.init(loraWanClass, loraWanRegion);
+    deviceState = DEVICE_STATE_JOIN;
+    break;
+  case DEVICE_STATE_JOIN:
+    LoRaWAN.join();
+    break;
+  case DEVICE_STATE_SEND:
+    switch (e2l_state)
+    {
+    case E2L_INIT:
+      prepareTxFrame(DEFAULT_E2L_JOIN_PORT);
+      e2l_state = E2L_REQUESTED;
       break;
-    case DEVICE_STATE_JOIN:
-      LoRaWAN.join();
+    case E2L_REQUESTED:
+      prepareTxFrame(DEFAULT_APP_PORT);
       break;
-    case DEVICE_STATE_SEND:
-      switch (e2l_state) {
-        case E2L_INIT:
-          prepareTxFrame(DEFAULT_E2L_JOIN_PORT);
-          e2l_state = E2L_REQUESTED;
-          break;
-        case E2L_REQUESTED:
-          prepareTxFrame(DEFAULT_APP_PORT);
-          break;
-        case E2L_ENABLED:
-          prepareTxFrame(DEFAULT_E2L_APP_PORT);
-          break;
-      }
-      LoRaWAN.send();
-      // overTheAirActivation = true;
-      deviceState = DEVICE_STATE_CYCLE;
+    case E2L_ENABLED:
+      prepareTxFrame(DEFAULT_E2L_APP_PORT);
       break;
-    case DEVICE_STATE_CYCLE:
-      // Schedule next packet transmission
-      txDutyCycleTime = appTxDutyCycle;//+ randr(0, APP_TX_DUTYCYCLE_RND);
-      LoRaWAN.cycle(txDutyCycleTime);
-      deviceState = DEVICE_STATE_SLEEP;
-      break;
-    case DEVICE_STATE_SLEEP:
-      LoRaWAN.sleep();
-      break;
-    default:
-      deviceState = DEVICE_STATE_INIT;
-      break;
+    }
+    LoRaWAN.send();
+    // overTheAirActivation = true;
+    deviceState = DEVICE_STATE_CYCLE;
+    break;
+  case DEVICE_STATE_CYCLE:
+    // Schedule next packet transmission
+    txDutyCycleTime = appTxDutyCycle; //+ randr(0, APP_TX_DUTYCYCLE_RND);
+    LoRaWAN.cycle(txDutyCycleTime);
+    deviceState = DEVICE_STATE_SLEEP;
+    break;
+  case DEVICE_STATE_SLEEP:
+    LoRaWAN.sleep();
+    break;
+  default:
+    deviceState = DEVICE_STATE_INIT;
+    break;
   }
 }
 
 /*
  *  HANDLE DOWNLINK FRAMES
  */
-void downLinkDataHandle(McpsIndication_t* mcpsIndication) {
+void downLinkDataHandle(McpsIndication_t *mcpsIndication)
+{
   // Serial.printf("Received downlink: %s, RXSIZE %d, PORT %d, DATA:
   // \n",mcpsIndication->RxSlot?"RXWIN2":"RXWIN1",mcpsIndication->BufferSize,mcpsIndication->Port);
   uint8_t buffer_size = mcpsIndication->BufferSize;
@@ -243,36 +275,37 @@ void downLinkDataHandle(McpsIndication_t* mcpsIndication) {
   uint8_t hash_result_enc[HASH_SIZE];
   memcpy(buffer, mcpsIndication->Buffer, buffer_size);
 
-  switch (mcpsIndication->Port) {
-    case DEFAULT_E2L_JOIN_PORT:
-      uECC_decompress((const uint8_t*)buffer, g_as_gw, curve);
-      uECC_shared_secret((const uint8_t*)g_as_gw, (const uint8_t*)private_key,
-                         edge_s_key, curve);
+  switch (mcpsIndication->Port)
+  {
+  case DEFAULT_E2L_JOIN_PORT:
+    uECC_decompress((const uint8_t *)buffer, g_as_gw, curve);
+    uECC_shared_secret((const uint8_t *)g_as_gw, (const uint8_t *)private_key,
+                       edge_s_key, curve);
 
-      memcpy(hash_buffer_int + 1, edge_s_key, PRIVATE_KEY_SIZE);
-      memcpy(hash_buffer_enc + 1, edge_s_key, PRIVATE_KEY_SIZE);
+    memcpy(hash_buffer_int + 1, edge_s_key, PRIVATE_KEY_SIZE);
+    memcpy(hash_buffer_enc + 1, edge_s_key, PRIVATE_KEY_SIZE);
 
-      hash_context.update(hash_buffer_int, PRIVATE_KEY_SIZE + 1);
-      hash_context.finalize(edgeSIntKey, AES_KEY_SIZE);
-      hash_context.reset();
-      hash_context.update(hash_buffer_enc, PRIVATE_KEY_SIZE + 1);
-      hash_context.finalize(edgeSEncKey, AES_KEY_SIZE);
-      hash_context.clear();
+    hash_context.update(hash_buffer_int, PRIVATE_KEY_SIZE + 1);
+    hash_context.finalize(edgeSIntKey, AES_KEY_SIZE);
+    hash_context.reset();
+    hash_context.update(hash_buffer_enc, PRIVATE_KEY_SIZE + 1);
+    hash_context.finalize(edgeSEncKey, AES_KEY_SIZE);
+    hash_context.clear();
 
-      Serial.print("EdgeSIntKey");
-      print_bytes_array(edgeSIntKey, AES_KEY_SIZE);
+    Serial.print("EdgeSIntKey");
+    print_bytes_array(edgeSIntKey, AES_KEY_SIZE);
 
-      Serial.print("EdgeSEncKey");
-      print_bytes_array(edgeSEncKey, AES_KEY_SIZE);
-      LoRaWAN.enableEdge2LoRa(edgeSIntKey, edgeSEncKey);
-      e2l_state = E2L_ENABLED;
-      break;
-    case DEFAULT_E2L_COMMAND_PORT:
-      Serial.printf("Received command: %s\n", (char*)buffer);
-      LoRaWAN.disableEdge2LoRa();
-      e2l_state = E2L_INIT;
-      break;
-    default:
-      break;
+    Serial.print("EdgeSEncKey");
+    print_bytes_array(edgeSEncKey, AES_KEY_SIZE);
+    LoRaWAN.enableEdge2LoRa(edgeSIntKey, edgeSEncKey);
+    e2l_state = E2L_ENABLED;
+    break;
+  case DEFAULT_E2L_COMMAND_PORT:
+    Serial.printf("Received command: %s\n", (char *)buffer);
+    LoRaWAN.disableEdge2LoRa();
+    e2l_state = E2L_INIT;
+    break;
+  default:
+    break;
   }
 }
